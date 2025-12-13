@@ -42,4 +42,4 @@ if __name__ == "__main__":
         ax.set_ylabel("Volatility")
 
     plt.tight_layout()  # type:ignore
-    plt.show()  # type:ignore
+    plt.savefig("example_rationa.pdf", dpi=300, bbox_inches="tight")  # type:ignore
