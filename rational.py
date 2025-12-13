@@ -1,14 +1,18 @@
 import math
 from scipy.stats import norm  # type: ignore
 import numpy as np
+import warnings
 
 NORMAL = norm(0, 1)
 SQRT3 = 1.732050807568877293527446341505872
+VOLTOL = 1e-8
 
 
 def b(x: float, vol: float, is_call: bool) -> float:
+    assert vol > 1e-16
     sgn = 1.0 if is_call else -1.0
-    if vol == 0:
+    if np.abs(vol) < VOLTOL:
+        warnings.warn("vol is below tolerance")
         if x > 0:
             n1, n2 = 1.0, 1.0
         else:
@@ -18,7 +22,11 @@ def b(x: float, vol: float, is_call: bool) -> float:
         arg2 = sgn * (x / vol - vol / 2)
         n1 = NORMAL.cdf(arg1)  # type: ignore
         n2 = NORMAL.cdf(arg2)  # type: ignore
-    return sgn * (math.exp(x / 2) * n1 - math.exp(-x / 2) * n2)  # type: ignore
+    out = sgn * (math.exp(x / 2) * n1 - math.exp(-x / 2) * n2)  # type: ignore
+    out = float(out)  # type: ignore
+    if np.abs(out) < 1e-16:
+        warnings.warn("b quote is zero")
+    return out
 
 
 class OptionData:
@@ -35,6 +43,7 @@ class OptionData:
         self.bCP = 0.0
         self.bUP = 0.0
         self.bMax = 0.0
+        self.quoteShift = 0.0  # TODO: use this to requote OTM call
 
         self.init_values()
         self.init_approx_center_left()
@@ -45,12 +54,22 @@ class OptionData:
     def bprime(self, vol: float) -> float:
         a = self.x / vol
         b = vol / 2
-        return (
-            1 / (math.sqrt(2) * math.sqrt(math.pi)) * math.exp(-0.5 * (a * a + b * b))
-        )
+        out = 1 / (math.sqrt(2) * math.sqrt(math.pi)) * math.exp(-0.5 * (a * a + b * b))
+        if np.abs(out) < 1e-16:
+            warnings.warn(f"bprime zero for {vol} and x={self.x}")
+        return out
 
     def init_values(self):
-        s = -1.0 if not self.is_call else 1.0
+        s = 2 * int(self.is_call) - 1
+
+        # should use "parity" identities in paper to reduce to OTM call
+        # TODO here
+        # for the moment, just panic if not possible
+
+        # at this point, we need to be in a OTM call situation
+        assert self.is_call
+        assert self.x <= 0.00
+
         self.bMax = math.exp(s * self.x / 2)
         self.sigmaC = math.sqrt(2 * abs(self.x))
         self.bC = b(self.x, self.sigmaC, self.is_call)
@@ -233,3 +252,10 @@ def r_auto_right(
 ) -> float:
     d = (fr - fl) / dx
     return (0.5 * dx * ssr + (sr - sl)) / (sr - d)
+
+
+def iota_parity(x: float, is_call: bool) -> float:
+    sgn = -1.00
+    if is_call:
+        sgn = 1.00
+    return np.max(np.exp(sgn * x / 2) - np.exp(-sgn * x / 2), 0)
